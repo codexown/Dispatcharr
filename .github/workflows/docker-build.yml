@@ -44,13 +44,14 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
-          context: docker
+          context: .
           file: docker/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            BRANCH=${{ env.BRANCH }}
-            REPO_URL=https://github.com/${{ github.repository }}
+            REPO_OWNER=dispatcharr
+            REPO_NAME=dispatcharr
+            BASE_TAG=base
           tags: |
             ghcr.io/${{ env.REPO_NAME }}:${{ env.TAG }}
             ghcr.io/${{ env.REPO_NAME }}:${{ github.sha }}
