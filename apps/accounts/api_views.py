@@ -1,5 +1,8 @@
 from django.contrib.auth import authenticate, login, logout
+from copy import deepcopy
+import ipaddress
 import logging
+from django.db import transaction
 from django.contrib.auth.models import Group, Permission
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -275,6 +278,54 @@ class UserViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @extend_schema(
+        description="Atomically add or remove Dispatcharr's owned M3U/EPG access sentinel.",
+        request=inline_serializer(
+            name="AccessSentinelRequest",
+            fields={"suspended": serializers.BooleanField()},
+        ),
+        responses=inline_serializer(
+            name="AccessSentinelResponse",
+            fields={
+                "id": serializers.IntegerField(),
+                "username": serializers.CharField(),
+                "sentinel_present": serializers.BooleanField(),
+            },
+        ),
+    )
+    @action(detail=True, methods=["patch"], url_path="access-sentinel")
+    def access_sentinel(self, request, pk=None):
+        suspended = request.data.get("suspended")
+        if not isinstance(suspended, bool):
+            return Response({"detail": "suspended must be a boolean"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=pk)
+                properties = deepcopy(user.custom_properties or {})
+                if not isinstance(properties, dict):
+                    raise TypeError("custom_properties must be an object")
+                scopes = deepcopy(properties.get("allowed_networks", {}))
+                if not isinstance(scopes, dict):
+                    raise TypeError("allowed_networks must be an object")
+                networks = _parse_m3u_epg_networks(scopes.get("M3U_EPG"))
+                sentinel = "127.0.0.1/32"
+                if suspended and sentinel not in networks:
+                    networks.append(sentinel)
+                if not suspended:
+                    networks = [network for network in networks if network != sentinel]
+                if networks:
+                    scopes["M3U_EPG"] = ",".join(networks)
+                else:
+                    scopes.pop("M3U_EPG", None)
+                properties["allowed_networks"] = scopes
+                user.custom_properties = properties
+                user.save(update_fields=["custom_properties"])
+        except User.DoesNotExist:
+            return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        except (TypeError, ValueError) as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"id": user.id, "username": user.username, "sentinel_present": sentinel in networks})
+
+    @extend_schema(
         description="Get or update active user information. PATCH updates custom_properties with merge semantics.",
         methods=["GET", "PATCH"],
     )
@@ -310,6 +361,24 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         serializer = UserSerializer(user)
         return Response(serializer.data)
+
+
+def _parse_m3u_epg_networks(value):
+    if value is None:
+        return []
+    if not isinstance(value, str):
+        raise TypeError("M3U_EPG must be a comma-separated CIDR string")
+    networks = [network.strip() for network in value.split(",")]
+    if not networks or any(not network for network in networks):
+        raise ValueError("M3U_EPG must contain valid CIDRs")
+    for network in networks:
+        try:
+            ipaddress.ip_network(network, strict=True)
+        except ValueError as error:
+            raise ValueError("M3U_EPG must contain valid CIDRs") from error
+    if networks.count("127.0.0.1/32") > 1:
+        raise ValueError("M3U_EPG contains a duplicate sentinel")
+    return networks
 
 
 # 🔹 3) Group Management APIs (Django auth.Group; unused by the React UI)
