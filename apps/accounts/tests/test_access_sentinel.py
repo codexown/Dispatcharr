@@ -32,12 +32,24 @@ class AccessSentinelTests(TestCase):
             {
                 "xc_password": "unchanged",
                 "dvr_access": "view",
-                "allowed_networks": {"XC": "10.0.0.0/8", "M3U_EPG": "127.0.0.1/32"},
+                "allowed_networks": {
+                    "XC": "10.0.0.0/8",
+                    "M3U_EPG": "127.0.0.1/32",
+                    "XC_API": "127.0.0.1/32",
+                    "STREAMS": "127.0.0.1/32",
+                },
             },
         )
 
     def test_restore_removes_only_sentinel_scope(self):
-        self.user.custom_properties = {"allowed_networks": {"M3U_EPG": "127.0.0.1/32", "XC": "10.0.0.0/8"}}
+        self.user.custom_properties = {
+            "allowed_networks": {
+                "M3U_EPG": "127.0.0.1/32",
+                "XC_API": "127.0.0.1/32",
+                "STREAMS": "127.0.0.1/32",
+                "XC": "10.0.0.0/8",
+            }
+        }
         self.user.save(update_fields=["custom_properties"])
 
         response = self.client.patch(self.url, {"suspended": False}, format="json")

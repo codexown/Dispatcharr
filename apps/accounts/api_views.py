@@ -27,6 +27,7 @@ from .serializers import UserSerializer, GroupSerializer, PermissionSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 logger = logging.getLogger(__name__)
+ACCESS_SENTINEL_SCOPES = ("M3U_EPG", "XC_API", "STREAMS")
 
 
 def _setup_status_payload(request, *, superuser_exists):
@@ -278,7 +279,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @extend_schema(
-        description="Atomically add or remove Dispatcharr's owned M3U/EPG access sentinel.",
+        description="Atomically add or remove Dispatcharr's owned access sentinel for exports and XC playback.",
         request=inline_serializer(
             name="AccessSentinelRequest",
             fields={"suspended": serializers.BooleanField()},
@@ -306,16 +307,17 @@ class UserViewSet(viewsets.ModelViewSet):
                 scopes = deepcopy(properties.get("allowed_networks", {}))
                 if not isinstance(scopes, dict):
                     raise TypeError("allowed_networks must be an object")
-                networks = _parse_m3u_epg_networks(scopes.get("M3U_EPG"))
                 sentinel = "127.0.0.1/32"
-                if suspended and sentinel not in networks:
-                    networks.append(sentinel)
-                if not suspended:
-                    networks = [network for network in networks if network != sentinel]
-                if networks:
-                    scopes["M3U_EPG"] = ",".join(networks)
-                else:
-                    scopes.pop("M3U_EPG", None)
+                for scope in ACCESS_SENTINEL_SCOPES:
+                    networks = _parse_m3u_epg_networks(scopes.get(scope))
+                    if suspended and sentinel not in networks:
+                        networks.append(sentinel)
+                    if not suspended:
+                        networks = [network for network in networks if network != sentinel]
+                    if networks:
+                        scopes[scope] = ",".join(networks)
+                    else:
+                        scopes.pop(scope, None)
                 properties["allowed_networks"] = scopes
                 user.custom_properties = properties
                 user.save(update_fields=["custom_properties"])
@@ -323,7 +325,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         except (TypeError, ValueError) as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"id": user.id, "username": user.username, "sentinel_present": sentinel in networks})
+        return Response({"id": user.id, "username": user.username, "sentinel_present": suspended})
 
     @extend_schema(
         description="Get or update active user information. PATCH updates custom_properties with merge semantics.",
