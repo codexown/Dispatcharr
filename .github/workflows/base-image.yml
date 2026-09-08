@@ -194,4 +194,3 @@ jobs:
             --annotation "index:build_version=DispatcharrBase version: ${BRANCH_TAG}-${TIMESTAMP}" \
             --tag ghcr.io/${OWNER}/${REPO}:${BRANCH_TAG}-${TIMESTAMP} \
             ghcr.io/${OWNER}/${REPO}:${BRANCH_TAG}-${TIMESTAMP}-amd64 ghcr.io/${OWNER}/${REPO}:${BRANCH_TAG}-${TIMESTAMP}-arm64
-
