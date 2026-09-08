@@ -249,6 +249,13 @@ describe('UsersTable', () => {
       expect(capturedTableOptions.data.map((u) => u.id)).toEqual([1, 2, 3]);
     });
 
+    it('shows ID as the first column', () => {
+      setupMocks();
+      render(<UsersTable />);
+      expect(capturedTableOptions.columns[0].accessorKey).toBe('id');
+      expect(capturedTableOptions.columns[0].header).toBe('ID');
+    });
+
     it('passes allRowIds derived from user ids', () => {
       const users = [makeUser({ id: 1 }), makeUser({ id: 2 })];
       setupMocks({ users });

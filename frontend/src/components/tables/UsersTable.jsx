@@ -184,6 +184,13 @@ const UsersTable = () => {
   const columns = useMemo(
     () => [
       {
+        header: 'ID',
+        accessorKey: 'id',
+        size: 65,
+        minSize: 50,
+        cell: ({ getValue }) => <Text size="sm">{getValue()}</Text>,
+      },
+      {
         header: 'User Level',
         accessorKey: 'user_level',
         size: 120,
