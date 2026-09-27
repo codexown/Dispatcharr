@@ -4,6 +4,8 @@ on:
 
 jobs:
   check:
+    # Solo en el repo original: los forks no tienen los secretos BOT_APP_ID/BOT_PRIVATE_KEY
+    if: github.repository_owner == 'Dispatcharr'
     runs-on: ubuntu-latest
     steps:
 
