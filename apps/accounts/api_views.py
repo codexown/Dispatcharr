@@ -404,6 +404,8 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "me":
             return [Authenticated()]
+        if self.action == "access_sentinel":
+            return [IsAdmin()]
 
         return [IsAdmin()]
 
@@ -445,7 +447,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         ),
     )
-    @action(detail=True, methods=["patch"], url_path="access-sentinel", permission_classes=[IsAdmin])
+    @action(detail=True, methods=["patch"], url_path="access-sentinel")
     def access_sentinel(self, request, pk=None):
         suspended = request.data.get("suspended")
         if not isinstance(suspended, bool):

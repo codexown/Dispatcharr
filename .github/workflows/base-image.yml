@@ -1,19 +1,9 @@
 name: Base Image Build
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - 'docker/DispatcharrBase'
-      - '.github/workflows/base-image.yml'
-      - 'pyproject.toml'
-  pull_request:
-    branches: [main, dev]
-    paths:
-      - 'docker/DispatcharrBase'
-      - '.github/workflows/base-image.yml'
-      - 'pyproject.toml'
-  workflow_dispatch: # Allow manual triggering
+  # Fork: the app image uses upstream ghcr.io/dispatcharr/dispatcharr:base,
+  # and upstream's ffmpeg base image is not pullable from this repo.
+  workflow_dispatch:
 
 permissions:
   contents: write # For managing releases and pushing tags
@@ -132,7 +122,7 @@ jobs:
             BRANCH=${{ github.ref_name }}
             REPO_URL=https://github.com/${{ github.repository }}
             TIMESTAMP=${{ needs.prepare.outputs.timestamp }}
-            FFMPEG_IMAGE=ghcr.io/dispatcharr/ffmpeg:latest
+            FFMPEG_IMAGE=ghcr.io/${{ needs.prepare.outputs.repo_owner }}/ffmpeg:latest
 
   create-manifest:
     needs: [prepare, docker]
