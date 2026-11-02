@@ -618,45 +618,33 @@ def xc_xmltv(request):
 
 
 def xc_get_live_categories(user):
+    # XC_EFFECTIVE_GROUP_PATCH: group by the EFFECTIVE group (override wins), so
+    # channels moved with ChannelOverride.channel_group get their category.
+    # Categories are ranked by the minimum effective channel number.
     from django.db.models import Min
     from django.db.models.functions import Coalesce
 
-    response = []
-
-    # Rank categories by the minimum EFFECTIVE channel number across their
-    # visible (not hidden_from_output) channels so overridden numbers drive the
-    # ordering, not the underlying provider values.
-    effective_min = Min(
-        Coalesce("channels__override__channel_number", "channels__channel_number")
-    )
-    hidden_exclusion = {"channels__hidden_from_output": False}
-
-    visible_channel_ids = channels_queryset_for_user(
-        Channel.objects.all(),
-        user,
-        level_cap_admins=True,
-    ).values("pk")
-    channel_groups = (
-        ChannelGroup.objects.filter(
-            channels__isnull=False,
-            channels__id__in=visible_channel_ids,
-            **hidden_exclusion,
+    visible = (
+        channels_queryset_for_user(Channel.objects.all(), user, level_cap_admins=True)
+        .filter(hidden_from_output=False)
+        .annotate(
+            eff_group=Coalesce("override__channel_group_id", "channel_group_id"),
+            eff_num=Coalesce("override__channel_number", "channel_number"),
         )
-        .distinct()
-        .annotate(min_channel_number=effective_min)
+        .exclude(eff_group=None)
+        .values("eff_group")
+        .annotate(min_channel_number=Min("eff_num"))
         .order_by("min_channel_number")
     )
-
-    for group in channel_groups:
-        response.append(
-            {
-                "category_id": str(group.id),
-                "category_name": group.name,
-                "parent_id": 0,
-            }
-        )
-
-    return response
+    names = dict(ChannelGroup.objects.values_list("id", "name"))
+    return [
+        {
+            "category_id": str(row["eff_group"]),
+            "category_name": names.get(row["eff_group"], ""),
+            "parent_id": 0,
+        }
+        for row in visible
+    ]
 
 
 def _xc_live_streams_setup(request, user, category_id):
@@ -668,7 +656,13 @@ def _xc_live_streams_setup(request, user, category_id):
         level_cap_admins=True,
     ).select_related("channel_group", "logo")
     if category_id is not None:
-        base_qs = base_qs.filter(channel_group__id=category_id)
+        # XC_EFFECTIVE_GROUP_PATCH: filter on the effective group (override wins).
+        from django.db.models import Q
+
+        base_qs = base_qs.filter(
+            Q(override__channel_group_id=category_id)
+            | Q(override__channel_group__isnull=True, channel_group__id=category_id)
+        )
 
     channels = (
         with_effective_values(base_qs, select_related_fks=True)
