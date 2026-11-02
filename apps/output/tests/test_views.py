@@ -1225,6 +1225,47 @@ class XcLiveCategoriesProfileUserLevelTests(OutputEndpointTestMixin, TestCase):
         )
 
 
+class XcLiveCategoriesOverrideGroupTests(OutputEndpointTestMixin, TestCase):
+    """A ChannelOverride.channel_group must drive XC categories and filtering.
+
+    get_live_streams already reports the effective group as category_id, but
+    categories and the category_id filter used the raw provider group, so a
+    channel moved by override pointed at a category clients never received.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.request = RequestFactory().get("/player_api.php")
+        self.provider = ChannelGroup.objects.create(name=f"Provider {uuid4().hex[:8]}")
+        self.sport = ChannelGroup.objects.create(name=f"Sport {uuid4().hex[:8]}")
+        self.profile = self._create_isolated_profile("xc-override")
+        self.moved = self._add_channel_to_profile(
+            self.profile, self.provider, name="Moved Ch", channel_number=50, user_level=0)
+        self.kept = self._add_channel_to_profile(
+            self.profile, self.provider, name="Kept Ch", channel_number=1, user_level=0)
+        ChannelOverride.objects.create(
+            channel=self.moved, channel_group=self.sport, channel_number=2000)
+        self.user = User.objects.create_user(
+            username=f"xc-ov-{uuid4().hex[:8]}", password="pass", user_level=1,
+            custom_properties={"xc_password": "xcpass"})
+        self.user.channel_profiles.add(self.profile)
+
+    def test_categories_use_effective_group(self):
+        categories = xc_get_live_categories(self.user)
+        self.assertEqual(
+            [(c["category_id"], c["category_name"]) for c in categories],
+            [(str(self.provider.id), self.provider.name),
+             (str(self.sport.id), self.sport.name)],
+        )
+
+    def test_category_filter_uses_effective_group(self):
+        sport = xc_get_live_streams(self.request, self.user, str(self.sport.id))
+        provider = xc_get_live_streams(self.request, self.user, str(self.provider.id))
+        self.assertEqual([s["stream_id"] for s in sport], [self.moved.id])
+        self.assertEqual([s["stream_id"] for s in provider], [self.kept.id])
+        self.assertEqual(sport[0]["category_id"], str(self.sport.id))
+
+
 class XcLiveStreamsCatchupAdvertisingTests(TestCase):
     """XC live streams omit tv_archive when catchup is disabled for the user."""
 
