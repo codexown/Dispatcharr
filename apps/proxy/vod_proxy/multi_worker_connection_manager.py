@@ -19,6 +19,13 @@ from apps.m3u.models import M3UAccountProfile
 
 logger = logging.getLogger("vod_proxy")
 
+# Upstream VOD request timeouts (connect, read). Some providers redirect to CDN
+# edges that take well over 10s to send the first byte of a cold file; a 10s
+# read timeout turned those into 500s (breaking client probes such as Jellyfin's
+# ffprobe of .strm items). One retry covers transient connect/read failures.
+VOD_UPSTREAM_TIMEOUT = (10, 30)
+VOD_UPSTREAM_RETRIES = 1
+
 
 class _ClosingVODStream:
     """Stream iterator that also runs ``on_close`` when the response is closed.
@@ -560,14 +567,7 @@ class RedisBackedVODConnection:
 
             logger.info(f"[{self.session_id}] Making request #{state.request_count} to {'final' if state.final_url else 'original'} URL")
 
-            # Make request (10s connect, 10s read timeout - keeps lock time reasonable if client disconnects)
-            response = self.local_session.get(
-                target_url,
-                headers=headers,
-                stream=True,
-                timeout=(10, 10),
-                allow_redirects=allow_redirects
-            )
+            response = self._upstream_get(target_url, headers, allow_redirects)
 
             # If the cached final_url returned an error (e.g. an ephemeral dispatcharr session
             # that has since expired), clear it and retry from the original stream_url.
@@ -578,13 +578,7 @@ class RedisBackedVODConnection:
                 )
                 response.close()
                 state.final_url = None
-                response = self.local_session.get(
-                    state.stream_url,
-                    headers=headers,
-                    stream=True,
-                    timeout=(10, 10),
-                    allow_redirects=True
-                )
+                response = self._upstream_get(state.stream_url, headers, True)
 
             response.raise_for_status()
 
@@ -657,6 +651,25 @@ class RedisBackedVODConnection:
             # Local HTTP only. Caller still owns Redis reservations and must roll them back.
             self._close_local_http(extra_response=response)
             raise
+
+    def _upstream_get(self, url, headers, allow_redirects):
+        """GET the upstream VOD URL, retrying on connect/read timeouts and connection errors."""
+        attempts = VOD_UPSTREAM_RETRIES + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.local_session.get(
+                    url,
+                    headers=headers,
+                    stream=True,
+                    timeout=VOD_UPSTREAM_TIMEOUT,
+                    allow_redirects=allow_redirects,
+                )
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                if attempt >= attempts:
+                    raise
+                logger.warning(
+                    f"[{self.session_id}] Upstream request attempt {attempt}/{attempts} failed ({e}); retrying"
+                )
 
     def _validate_range_header(self, range_header: str, content_length: int):
         """Validate range header against content length"""
