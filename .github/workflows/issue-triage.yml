@@ -10,7 +10,8 @@ concurrency:
 
 jobs:
   triage:
-    if: github.event.label.name == 'Triage'
+    # Solo en el repo original: los forks no tienen los secretos BOT_APP_ID/BOT_PRIVATE_KEY
+    if: github.repository_owner == 'Dispatcharr' && github.event.label.name == 'Triage'
     concurrency:
       group: issue-triage-global
       cancel-in-progress: false
